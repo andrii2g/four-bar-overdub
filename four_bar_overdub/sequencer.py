@@ -3,6 +3,7 @@
 from array import array
 from collections.abc import Sequence
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 import sys
 import wave
 
@@ -85,14 +86,22 @@ def write_wav(path: str | Path, pcm: bytes) -> None:
     if len(pcm) != LOOP_FRAMES * SAMPLE_WIDTH:
         raise ValueError("WAV export requires exactly four bars of PCM")
 
-    with wave.open(str(path), "wb") as output:
-        output.setnchannels(1)
-        output.setsampwidth(SAMPLE_WIDTH)
-        output.setframerate(SAMPLE_RATE)
-        # wave.writeframes accepts native-endian samples and encodes a little-endian WAV.
-        if sys.byteorder == "big":
-            samples = array("h")
-            samples.frombytes(pcm)
-            samples.byteswap()
-            pcm = samples.tobytes()
-        output.writeframes(pcm)
+    # wave.writeframes accepts native-endian samples and encodes a little-endian WAV.
+    if sys.byteorder == "big":
+        samples = array("h")
+        samples.frombytes(pcm)
+        samples.byteswap()
+        pcm = samples.tobytes()
+
+    destination = Path(path)
+    temporary = NamedTemporaryFile(dir=destination.parent, delete=False)
+    temporary_path = Path(temporary.name)
+    try:
+        with temporary, wave.open(temporary, "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(SAMPLE_WIDTH)
+            output.setframerate(SAMPLE_RATE)
+            output.writeframes(pcm)
+        temporary_path.replace(destination)
+    finally:
+        temporary_path.unlink(missing_ok=True)
